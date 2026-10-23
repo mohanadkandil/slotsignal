@@ -1,0 +1,10 @@
+.env
+.pairing.json
+.env.*
+!.env.example
+data/
+__pycache__/
+status.json
+.lock
+OPENING.txt
+*.log

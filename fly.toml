@@ -1,0 +1,39 @@
+app = "heilbronn-rp-alert-mk-2026"
+primary_region = "fra"
+kill_signal = "SIGTERM"
+kill_timeout = 60
+
+[build]
+  dockerfile = "Dockerfile.fly"
+
+[env]
+  ALERT_DATA_DIR = "/data"
+  ALERT_CHANNELS = "telegram"
+  ALERT_HEALTH_PORT = "8080"
+
+[processes]
+  worker = "python fly_start.py"
+
+[[mounts]]
+  source = "monitor_data"
+  destination = "/data"
+  initial_size = "1gb"
+  processes = ["worker"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  processes = ["worker"]
+
+[[restart]]
+  policy = "always"
+  processes = ["worker"]
+
+[checks.monitor]
+  type = "http"
+  port = 8080
+  path = "/health"
+  interval = "60s"
+  timeout = "5s"
+  grace_period = "180s"
+  processes = ["worker"]
