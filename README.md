@@ -1,88 +1,70 @@
 # SlotSignal
 
-A small, always-on appointment watcher that sends Telegram alerts with the date, available times, and a direct booking button.
+SlotSignal checks Heilbronn's residence permit renewal calendar and sends you a Telegram message when an appointment fits your dates. The message includes the date, available times, and a booking button.
 
-Configured for **Heilbronn residence permit renewal**, one person, **23 October–14 November 2026 inclusive**. It checks every five minutes. You make the booking yourself.
+It runs as one Rust process on Fly.io. Your laptop can be off.
 
-## Use it
+The current search is for one person, from today through **14 November 2026**, with a check every five minutes. All times are in Europe/Berlin.
 
-Open [SlotSignal on Telegram](https://t.me/HeilbronnSlotsMK2026Bot).
+## Try it
 
-| Command | What it proves |
-| --- | --- |
-| `/status` | The server is responding; shows its time, last successful website check, successful check count, and any errors. |
-| `/check` | Makes a real availability check now and returns the result. Limited to once per minute. |
-| `/test` | Sends a **TEST ONLY** example using the real alert delivery path and booking link. No real opening is implied. |
-| `/help` | Shows the monitor status and command guide. |
+Open [SlotSignal in Telegram](https://t.me/HeilbronnSlotsMK2026Bot).
 
-You receive a daily health message after **09:00 Europe/Berlin**. A real opening alert names the date and times in the same timezone and includes an **Open renewal booking** button.
+- Send `/test` for an example alert. It says `TEST ONLY`; the example date is made up.
+- Send `/check` to check the actual appointment website now.
+- Send `/status` to see the server time, last successful check, and any errors.
 
-## How reliable is it?
+After five minutes, the check count and timestamp should advance by themselves. To check that the server works without your laptop, put the laptop to sleep and send `/status` from your phone.
 
-- **Independent of your laptop:** one always-on Fly.io worker in Frankfurt, with persistent state on a 1GB volume. The worker runs as an unprivileged user after initializing the volume.
-- **Checks the actual appointment feed:** uses the same read-only availability endpoint as the booking page. If a date is in range, it confirms that day's time slots before alerting.
-- **Detects failures:** connection timeouts, unexpected responses, and disabled or changed services are reported as errors. Three consecutive failures trigger an attention alert, with retries and backoff.
-- **Avoids repeated messages:** alerts immediately for a new available day, then reminds after 30 minutes if it is still available. State survives normal restarts and deployments.
-- **Reports health:** Fly checks a private `/health` endpoint. It becomes unhealthy when the loop stalls, Telegram polling is stale, or website checks fail for too long. Fly's restart policy handles process exits; a failed health check alone does not restart a live process.
-- **Restricts access:** only the paired private Telegram chat can run commands. Credentials live in Fly secrets and a local owner-readable `.env`, outside Git and Docker build layers.
+## What it checks
 
-**Limits:** five-minute polling can miss a slot that opens and disappears between checks. An alert cannot hold a slot or guarantee a booking. Telegram accepting a message does not guarantee a phone notification; unmute the bot and enable Telegram notifications. A total server, host, or network outage cannot report itself; a missing daily message or unanswered `/status` needs investigation. This is a single worker, not a highly available service.
+Every five minutes, the process asks the booking system for dates for "extension of a residence permit" (service 144512). If a date falls in your search window, it asks for that day's available times before sending an alert.
 
-Appointment requests stop after 14 November. The bot can still respond to `/status`; Fly resources keep billing until stopped or removed. See [Fly pricing](https://docs.fly.io/about/pricing/) for current rates.
+You still need to open the link and book. SlotSignal cannot hold an appointment for you. It sends another reminder after 30 minutes if the same day is still available.
 
-## How to test it yourself
+## What can go wrong
 
-1. Send `/test`. Verify the clearly marked example and its booking button on your phone and laptop.
-2. Send `/check`. Verify a recent successful website check, or a clearly reported error.
-3. Send `/status` again after at least five minutes. The successful-check count and timestamp should advance automatically.
-4. Put your laptop to sleep. Send `/status` from your phone. A fresh server time demonstrates that Fly, rather than your laptop, is running the watcher.
-5. Expect the daily health message the next morning.
+A slot can open and disappear between checks. Someone can also take it before you click the alert. Five-minute polling cannot prevent either case.
 
-Automated tests use simulated openings and mocked Telegram responses. They cover date filtering, disappeared slots, duplicates, delivery retries, expiry, malformed responses, link buttons, credential redaction, command authorization, and health reporting. They do not replace the live Telegram and website checks above.
+The worker retries failed requests and reports errors separately from an empty calendar. After three failed checks or alert deliveries, it tries to send an attention message. Repeated failures slow the checks to at most one per hour.
 
-## Development
+Fly restarts the process if it exits. Status and alert history are saved on a volume, so a normal restart does not erase them. A health check watches the loop, recent Telegram replies, and successful website checks. A failed health check alone does not restart the process.
 
-Python 3.9+; standard library only. The production container uses Python 3.12.
+You get a daily health message after 09:00. If the whole server or its network goes down, it cannot send that message. An unanswered `/status` or a missing daily message is a reason to investigate. There is only one worker, so a host failure can interrupt monitoring.
+
+Unmute the bot and allow Telegram notifications on your phone and laptop. A message reaching Telegram does not prove that your phone showed a notification.
+
+Appointment checks stop after 14 November. The bot can still answer commands, and Fly resources keep billing until you stop or remove them.
+
+## Run it locally
+
+Use Rust 1.97.1 or later.
 
 ```sh
-python3 -m unittest -v test_alerts
-bash -n setup-telegram.command
+cargo test --locked
+cargo build --release --locked
+cp .env.example .env
+chmod 600 .env
 ```
 
-Edit `config.json` to change the date range, interval, or reminder period. Intervals shorter than five minutes are rejected by deployment setup.
-
-The optional `setup-telegram.command` helper creates and pairs a dedicated bot using official BotFather. It uses hidden token input, a random chat-pairing challenge, and a test message. Never paste bot credentials into issues or commit `.env`.
-
-## Deploy to Fly.io
-
-`fly.toml` defines one 256MB shared CPU worker, a persistent volume, a private health check, and no public service or public IP. Set the app name for a separate deployment.
+Create a dedicated bot with [BotFather](https://t.me/BotFather) using `/newbot`. Put its token in `.env`, then pair your private chat:
 
 ```sh
-flyctl auth login
-flyctl apps create YOUR_APP --org YOUR_ORG
-flyctl secrets import --stage --app YOUR_APP < .env
-flyctl deploy --app YOUR_APP --local-only --ha=false --no-public-ips
-flyctl status --app YOUR_APP
-flyctl checks list --app YOUR_APP
-flyctl logs --app YOUR_APP
+./target/release/slotsignal pair
+./target/release/slotsignal test
+./target/release/slotsignal serve
 ```
 
-Keep **one** worker: multiple instances polling the same Telegram bot conflict. `--ha=false` avoids creating a spare Machine. To pause the deployed service:
+The pairing command prints a link. Open it in Telegram and press Start. It saves your chat ID in `.env`. Keep that file out of Git; the repository already ignores it. Only your paired private chat can run bot commands.
 
-```sh
-flyctl scale count worker=0 --app YOUR_APP --yes
-```
+Edit `config.json` to change the dates or reminder period. Checks and reminders must be at least five minutes apart.
 
-The volume remains billable while retained. To permanently remove the app and its stored state, use the Fly dashboard's app removal flow.
+## Deploy and maintain it
 
-## Other runtimes
+[Deployment instructions](docs/deployment.md) cover Fly.io, Docker Compose, logs, and stopping the worker. Credentials go into Fly secrets, not the image or repository.
 
-`docker compose up -d --build` runs the same worker on an existing Linux host; `.env` must contain `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. State lives in the named `monitor-data` volume.
+The tests cover date filtering, slots disappearing before confirmation, duplicate alerts, delivery retries, saved state, private-chat access, booking links, and errors that could expose credentials. Live checks are still needed to confirm that the website and your Telegram chat are reachable.
 
-`manage.py` manages the original Mac-only fallback: `install`, `status`, `check`, `test-notification`, and `stop`. It needs an awake, online Mac. Its runtime is `~/Library/Application Support/HeilbronnAppointmentAlert`; it does not share the server's Telegram polling session.
+The appointment source is the [official booking page](https://www.etermin.net/qtermin-stadtheilbronn-abh?lang=en). The worker refreshes service details hourly and follows the website's booking constraints.
 
-## Source of appointments
-
-[Official booking page](https://www.etermin.net/qtermin-stadtheilbronn-abh?lang=en), service **144512**, “extension of a residence permit.” Website settings and service details are refreshed hourly so the watcher follows the site's lead times and booking constraints. It does not bypass access controls or reserve appointments.
-
-If your permit expires soon, do not treat an appointment reservation or this monitor as a renewal application. Follow [Heilbronn's official guidance](https://www.heilbronn.de/rathaus/buergerservice-a-z/inhalt/faqs-auslaenderangelegenheiten.html); contact **abh@heilbronn.de** or **07131 56-2064**.
+If your permit expires soon, follow [Heilbronn's application guidance](https://www.heilbronn.de/rathaus/buergerservice-a-z/inhalt/faqs-auslaenderangelegenheiten.html). An appointment reservation is separate from a renewal application.

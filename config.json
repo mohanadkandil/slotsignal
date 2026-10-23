@@ -2,6 +2,5 @@
   "first_date": "2026-10-23",
   "last_date": "2026-11-14",
   "interval_seconds": 300,
-  "reminder_seconds": 1800,
-  "open_booking_page": true
+  "reminder_seconds": 1800
 }

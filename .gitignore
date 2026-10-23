@@ -8,3 +8,4 @@ status.json
 .lock
 OPENING.txt
 *.log
+target/

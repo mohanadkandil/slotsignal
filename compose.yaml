@@ -2,6 +2,7 @@ services:
   appointment-alert:
     build: .
     restart: unless-stopped
+    user: "10001:10001"
     env_file: .env
     environment:
       ALERT_DATA_DIR: /data

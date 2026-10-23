@@ -1,8 +1,7 @@
 *
-!monitor.py
-!telegram_client.py
-!server.py
+!Cargo.toml
+!Cargo.lock
+!src/
+!src/**
 !config.json
 !Dockerfile
-!Dockerfile.fly
-!fly_start.py

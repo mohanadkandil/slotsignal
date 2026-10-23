@@ -4,7 +4,7 @@ kill_signal = "SIGTERM"
 kill_timeout = 60
 
 [build]
-  dockerfile = "Dockerfile.fly"
+  dockerfile = "Dockerfile"
 
 [env]
   ALERT_DATA_DIR = "/data"
@@ -12,7 +12,7 @@ kill_timeout = 60
   ALERT_HEALTH_PORT = "8080"
 
 [processes]
-  worker = "python fly_start.py"
+  worker = "slotsignal serve"
 
 [[mounts]]
   source = "monitor_data"
